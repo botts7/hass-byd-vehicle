@@ -9,7 +9,7 @@
   "iot_class": "cloud_polling",
   "issue_tracker": "https://github.com/jkaberg/hass-byd-vehicle/issues",
   "requirements": [
-    "pybyd==0.0.62"
+    "pybyd @ git+https://github.com/botts7/pyBYD.git@pr/enum-mappings-and-hvac-extended"
   ],
   "version": "0.0.73"
 }

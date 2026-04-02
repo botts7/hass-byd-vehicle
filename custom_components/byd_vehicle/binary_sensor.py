@@ -80,6 +80,23 @@ def _sentinel_int_on(attr_name: str) -> Callable[[Any], bool | None]:
     return _fn
 
 
+def _byd_convention_on(attr_name: str) -> Callable[[Any], bool | None]:
+    """Return a value_fn for BYD 1=on/active, 2=off convention fields.
+
+    BYD uses 1=on/active, 2=off for pwr, sentryStatus, and other indicators.
+    Confirmed from live Sealion 7 debug dumps (2026-04-03):
+    pwr=2 while driving (normal), sentryStatus=2 while driving (off).
+    """
+
+    def _fn(obj: Any) -> bool | None:
+        val = getattr(obj, attr_name, None)
+        if val is None:
+            return None
+        return val == 1
+
+    return _fn
+
+
 BINARY_SENSOR_DESCRIPTIONS: tuple[BydBinarySensorDescription, ...] = (
     # =================================
     # Aggregate states (enabled)
@@ -120,7 +137,7 @@ BINARY_SENSOR_DESCRIPTIONS: tuple[BydBinarySensorDescription, ...] = (
         key="sentry_status",
         source="realtime",
         icon="mdi:shield-car",
-        value_fn=_attr_truthy("sentry_status"),
+        value_fn=_byd_convention_on("sentry_status"),
     ),
     # ====================================
     # Individual doors (disabled)
@@ -278,7 +295,7 @@ BINARY_SENSOR_DESCRIPTIONS: tuple[BydBinarySensorDescription, ...] = (
         icon="mdi:flash-alert",
         entity_registry_enabled_default=False,
         entity_category=EntityCategory.DIAGNOSTIC,
-        value_fn=_sentinel_int_on("pwr"),
+        value_fn=_byd_convention_on("pwr"),
     ),
     BydBinarySensorDescription(
         key="power_system",

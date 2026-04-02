@@ -131,9 +131,6 @@
       "temp_out_car": {
         "name": "Exterior temperature"
       },
-      "battery_power": {
-        "name": "Battery power"
-      },
       "pm": {
         "name": "PM2.5"
       },
@@ -163,12 +160,6 @@
       },
       "full_minute": {
         "name": "Minutes to full"
-      },
-      "remaining_hours": {
-        "name": "Charge remaining hours"
-      },
-      "remaining_minutes": {
-        "name": "Charge remaining minutes"
       },
       "booking_charge_state": {
         "name": "Scheduled charging"
@@ -218,6 +209,15 @@
       "gps_last_updated": {
         "name": "GPS last updated"
       },
+      "remaining_hours": {
+        "name": "Charge remaining hours"
+      },
+      "remaining_minutes": {
+        "name": "Charge remaining minutes"
+      },
+      "battery_power": {
+        "name": "Battery power"
+      },
       "total_energy": {
         "name": "Total energy"
       },
@@ -256,6 +256,72 @@
       },
       "vehicle_time_zone": {
         "name": "Vehicle time zone"
+      },
+      "refrigerator_temp": {
+        "name": "Refrigerator temperature"
+      },
+      "air_conditioning_mode": {
+        "name": "A/C mode"
+      },
+      "air_run_state": {
+        "name": "Air recirculation"
+      },
+      "electric_defrost_status": {
+        "name": "Rear defrost"
+      },
+      "front_defrost_status": {
+        "name": "Front defrost"
+      },
+      "rapid_decrease_temp_state": {
+        "name": "Rapid cool"
+      },
+      "rapid_increase_temp_state": {
+        "name": "Rapid heat"
+      },
+      "wind_mode": {
+        "name": "Fan mode"
+      },
+      "wind_position": {
+        "name": "Airflow direction"
+      },
+      "wiper_heat_status": {
+        "name": "Wiper heating"
+      },
+      "cycle_choice": {
+        "name": "Recirculation mode"
+      },
+      "air_temp_level": {
+        "name": "A/C temperature level"
+      },
+      "air_condition_temp_range": {
+        "name": "A/C temperature range"
+      },
+      "lr_third_heat_state": {
+        "name": "Left rear third row heat"
+      },
+      "rr_third_heat_state": {
+        "name": "Right rear third row heat"
+      },
+      "lr_third_ventilation_state": {
+        "name": "Left rear third row ventilation"
+      },
+      "rr_third_ventilation_state": {
+        "name": "Right rear third row ventilation"
+      },
+      "copilot_setting_temp_new": {
+        "name": "Passenger set temperature"
+      },
+      "vehicle_state": {
+        "name": "Vehicle state"
+      },
+      "power_gear": {
+        "name": "Gear position"
+      },
+      "tire_press_unit": {
+        "name": "Tire pressure unit"
+      },
+      "upgrade_status": {
+        "name": "OTA upgrade status"
       }
     },
     "binary_sensor": {
@@ -265,7 +331,6 @@
       "is_charging": {
         "name": "Charging"
       },
-
       "is_any_door_open": {
         "name": "Doors"
       },
