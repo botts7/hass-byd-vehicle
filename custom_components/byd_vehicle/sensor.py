@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -85,11 +86,17 @@ def _round_int_attr(attr: str) -> Callable[[Any], int | None]:
     return _convert
 
 
+_LEADING_NUMBER_RE = re.compile(r"^\s*(-?\d+(?:\.\d+)?)")
+
+
 def _parse_numeric_string(attr: str) -> Callable[[Any], float | None]:
     """Create a converter that parses a string attribute to float.
 
     Returns *None* for sentinel strings like ``"--"`` or non-numeric values.
-    The BYD API sends several energy-related fields as strings (e.g. ``"29.6"``).
+    The BYD API sends several energy-related fields as strings. Some are
+    bare numbers (e.g. ``"29.6"``) while others include unit suffixes
+    (e.g. ``"18.4kW·h/100km"``, ``"11.9度/百公里"``). The fallback regex
+    extracts the leading numeric portion so both styles parse cleanly.
     """
 
     def _convert(obj: Any) -> float | None:
@@ -99,6 +106,13 @@ def _parse_numeric_string(attr: str) -> Callable[[Any], float | None]:
         try:
             return float(value)
         except (ValueError, TypeError):
+            if isinstance(value, str):
+                match = _LEADING_NUMBER_RE.match(value)
+                if match:
+                    try:
+                        return float(match.group(1))
+                    except ValueError:
+                        pass
             return None
 
     return _convert
