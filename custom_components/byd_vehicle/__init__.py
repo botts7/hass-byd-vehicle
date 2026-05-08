@@ -277,6 +277,22 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     except Exception as exc:  # noqa: BLE001
         raise ConfigEntryNotReady from exc
 
+    # One-shot energy fetch so the EnergyConsumption-backed sensors are
+    # populated at startup. Subsequent refreshes are user-driven via the
+    # ``Fetch energy data`` button or ``byd_vehicle.fetch_energy`` service
+    # — energy data changes slowly and the cloud rate-limits the endpoint.
+    _LOGGER.debug("Running initial energy fetch for BYD coordinators")
+    for vin, coordinator in coordinators.items():
+        try:
+            await coordinator.async_fetch_energy()
+        except Exception as exc:  # noqa: BLE001
+            _LOGGER.debug(
+                "Initial energy fetch failed (will populate on next press): "
+                "vin=%s error=%s",
+                vin,
+                exc,
+            )
+
     hass.data[DOMAIN][entry.entry_id] = {
         "api": api,
         "coordinators": coordinators,
