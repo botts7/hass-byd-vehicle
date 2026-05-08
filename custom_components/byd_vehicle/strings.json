@@ -256,6 +256,48 @@
       },
       "vehicle_time_zone": {
         "name": "Vehicle time zone"
+      },
+      "last_50km_avg_ev_consumption": {
+        "name": "Last 50km average EV consumption"
+      },
+      "last_50km_avg_fuel_consumption": {
+        "name": "Last 50km average fuel consumption"
+      },
+      "last_50km_avg_eq_consumption": {
+        "name": "Last 50km equivalent consumption"
+      },
+      "lifetime_avg_ev_consumption": {
+        "name": "Lifetime average EV consumption"
+      },
+      "lifetime_avg_fuel_consumption": {
+        "name": "Lifetime average fuel consumption"
+      },
+      "energy_cumulative_total_mileage": {
+        "name": "Cumulative total mileage"
+      },
+      "energy_last_50km_ev_consumption": {
+        "name": "Last 50km EV consumption"
+      },
+      "energy_last_50km_oil_consumption": {
+        "name": "Last 50km fuel consumption"
+      },
+"energy_last_50km_drive_distribution": {
+        "name": "Last 50km drive distribution"
+      },
+      "energy_last_50km_elect_distribution": {
+        "name": "Last 50km electric distribution"
+      },
+      "energy_last_50km_air_distribution": {
+        "name": "Last 50km HVAC distribution"
+      },
+      "energy_last_50km_other_distribution": {
+        "name": "Last 50km other distribution"
+      },
+      "energy_self_graph_today": {
+        "name": "Today's energy consumption"
+      },
+      "energy_auto_model_graph_today": {
+        "name": "Today's model-average consumption"
       }
     },
     "binary_sensor": {
@@ -399,6 +441,9 @@
       },
       "start_charging": {
         "name": "Start charging"
+      },
+      "fetch_energy": {
+        "name": "Fetch energy data"
       }
     },
     "select": {

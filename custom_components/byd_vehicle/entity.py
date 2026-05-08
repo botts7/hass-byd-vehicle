@@ -14,6 +14,7 @@ from pybyd import (
     BydRemoteControlError,
     VehicleSnapshot,
 )
+from pybyd.models.energy import EnergyConsumption
 from pybyd.models.gps import GpsInfo
 from pybyd.models.hvac import HvacStatus
 from pybyd.models.realtime import VehicleRealtimeData
@@ -84,10 +85,19 @@ class BydVehicleEntity(CoordinatorEntity[BydDataUpdateCoordinator]):
         snap = self._snapshot()
         return snap.gps if snap is not None else None
 
+    def _get_energy(self) -> EnergyConsumption | None:
+        """Return energy-consumption data from the snapshot."""
+        snap = self._snapshot()
+        return snap.energy if snap is not None else None
+
     def _get_source_obj(self, source: str = "realtime") -> Any | None:
         """Return the snapshot section for the given *source* string.
 
-        Supported values: ``"realtime"``, ``"hvac"``, ``"gps"``.
+        Supported values: ``"realtime"``, ``"hvac"``, ``"gps"``,
+        ``"energy"``, ``"energy_cumulative"``, ``"energy_nearest"``,
+        ``"energy_self_graph"``, ``"energy_auto_model_graph"``,
+        ``"snapshot"`` (the full :class:`VehicleSnapshot` for cross-section
+        merged value_fn lookups).
         """
         if source == "realtime":
             return self._get_realtime()
@@ -95,6 +105,23 @@ class BydVehicleEntity(CoordinatorEntity[BydDataUpdateCoordinator]):
             return self._get_hvac_status()
         if source == "gps":
             return self._get_gps()
+        if source == "energy":
+            return self._get_energy()
+        if source == "snapshot":
+            return self._snapshot()
+        if source.startswith("energy_"):
+            energy = self._get_energy()
+            if energy is None:
+                return None
+            attr = source[len("energy_") :]
+            # Map URL-style suffixes to model attribute names.
+            attr_map = {
+                "cumulative": "cumulative_energy_consumption",
+                "nearest": "nearest_energy_consumption",
+                "self_graph": "self_graph",
+                "auto_model_graph": "auto_model_graph",
+            }
+            return getattr(energy, attr_map.get(attr, attr), None)
         return None
 
     def _is_vehicle_on(self) -> bool:

@@ -28,7 +28,7 @@ from homeassistant.const import (
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from pybyd.models.realtime import TirePressureUnit
-from pybyd.models.vehicle import Vehicle
+from pybyd.models.vehicle import EnergyType, Vehicle
 
 from .const import DOMAIN
 from .coordinator import BydDataUpdateCoordinator
@@ -71,6 +71,8 @@ class BydSensorDescription(SensorEntityDescription):
     source: str = "realtime"
     attr_key: str | None = None
     value_fn: Callable[[Any], Any] | None = None
+    unit_fn: Callable[[Any], str | None] | None = None
+    state_attrs_fn: Callable[[Any], dict[str, Any]] | None = None
     validator_fn: FieldValidator | None = None
 
 
@@ -130,6 +132,98 @@ def _positive_float_attr(attr: str) -> Callable[[Any], float | None]:
         if value is None or value < 0:
             return None
         return float(value)
+
+    return _convert
+
+
+def _attr_getter(name: str) -> Callable[[Any], Any]:
+    """Return a callable that reads attribute *name* from a source object."""
+
+    def _get(obj: Any) -> Any:
+        if obj is None:
+            return None
+        return getattr(obj, name, None)
+
+    return _get
+
+
+def _eq_consumption_value(snap: Any) -> Any:
+    """Return the 'Last 50km equivalent consumption' value.
+
+    Prefers ``realtime.eq_consumption`` (the raw MQTT
+    ``nearestEnergyConsumption`` summary, populated every poll cycle).
+    Falls back to the HTTP equivalent based on the vehicle's
+    energyType — ``avg_ev_consumption`` at et=0, otherwise
+    ``avg_eq_oil_consumption``.
+    """
+    if snap is None:
+        return None
+    rt = getattr(snap, "realtime", None)
+    if rt is not None:
+        v = getattr(rt, "eq_consumption", None)
+        if v is not None:
+            return v
+    energy = getattr(snap, "energy", None)
+    if energy is None:
+        return None
+    nearest = getattr(energy, "nearest_energy_consumption", None)
+    if nearest is None:
+        return None
+    energy_type = getattr(getattr(snap, "vehicle", None), "energy_type", EnergyType.EV)
+    if energy_type in (EnergyType.ICE, EnergyType.HYBRID):
+        return getattr(nearest, "avg_eq_oil_consumption", None)
+    return getattr(nearest, "avg_ev_consumption", None)
+
+
+def _eq_consumption_unit(snap: Any) -> Any:
+    """Return the matching unit for ``_eq_consumption_value``."""
+    if snap is None:
+        return None
+    rt = getattr(snap, "realtime", None)
+    if rt is not None:
+        u = getattr(rt, "eq_consumption_unit", None)
+        if u:
+            return u
+    energy = getattr(snap, "energy", None)
+    if energy is None:
+        return None
+    nearest = getattr(energy, "nearest_energy_consumption", None)
+    if nearest is None:
+        return None
+    energy_type = getattr(getattr(snap, "vehicle", None), "energy_type", EnergyType.EV)
+    if energy_type in (EnergyType.ICE, EnergyType.HYBRID):
+        return getattr(nearest, "oil_unit", None) or None
+    return getattr(nearest, "ev_unit", None) or None
+
+
+def _prefer_rt_then_energy(
+    rt_attr: str | None,
+    *energy_path: str,
+) -> Callable[[Any], Any]:
+    """Return ``snap.realtime.<rt_attr>`` if set, else navigate ``snap.energy``.
+
+    The realtime section is updated automatically every poll cycle while the
+    energy section is on-demand (via ``Fetch energy data``). Reading from
+    realtime first means merged sensors stay fresh between energy fetches;
+    falling back to the energy section keeps them populated when realtime
+    hasn't carried the value (or returned a sentinel).
+    """
+
+    def _convert(snap: Any) -> Any:
+        if snap is None:
+            return None
+        if rt_attr is not None:
+            rt = getattr(snap, "realtime", None)
+            if rt is not None:
+                value = getattr(rt, rt_attr, None)
+                if value is not None:
+                    return value
+        cur: Any = getattr(snap, "energy", None)
+        for part in energy_path:
+            if cur is None:
+                return None
+            cur = getattr(cur, part, None)
+        return cur
 
     return _convert
 
@@ -595,6 +689,215 @@ SENSOR_DESCRIPTIONS: tuple[BydSensorDescription, ...] = (
         icon="mdi:crosshairs-gps",
         entity_category=EntityCategory.DIAGNOSTIC,
     ),
+    # ==========================================
+    # Merged hybrid leg averages (realtime + energy endpoints carry
+    # the same value at different update cadences). Each merged sensor
+    # prefers the realtime field — updated every poll — and falls back
+    # to the energy-endpoint field — refreshed on Fetch energy data.
+    # ==========================================
+    BydSensorDescription(
+        key="last_50km_avg_ev_consumption",
+        source="snapshot",
+        value_fn=_prefer_rt_then_energy(
+            "energy_consumption_ev",
+            "nearest_energy_consumption",
+            "avg_ev_consumption",
+        ),
+        unit_fn=_prefer_rt_then_energy(
+            "energy_consumption_ev_unit",
+            "nearest_energy_consumption",
+            "ev_unit",
+        ),
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:lightning-bolt",
+        entity_registry_enabled_default=False,
+        entity_category=EntityCategory.DIAGNOSTIC,
+    ),
+    BydSensorDescription(
+        key="last_50km_avg_fuel_consumption",
+        source="snapshot",
+        value_fn=_prefer_rt_then_energy(
+            "energy_consumption_fuel",
+            "nearest_energy_consumption",
+            "avg_oil_consumption",
+        ),
+        unit_fn=_prefer_rt_then_energy(
+            "energy_consumption_fuel_unit",
+            "nearest_energy_consumption",
+            "oil_unit",
+        ),
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:gas-station",
+        entity_registry_enabled_default=False,
+        entity_category=EntityCategory.DIAGNOSTIC,
+    ),
+    BydSensorDescription(
+        key="lifetime_avg_ev_consumption",
+        source="snapshot",
+        value_fn=_prefer_rt_then_energy(
+            "total_consumption_en_ev",
+            "cumulative_energy_consumption",
+            "avg_ev_consumption",
+        ),
+        unit_fn=_prefer_rt_then_energy(
+            "total_consumption_en_ev_unit",
+            "cumulative_energy_consumption",
+            "ev_unit",
+        ),
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:lightning-bolt",
+        entity_registry_enabled_default=False,
+        entity_category=EntityCategory.DIAGNOSTIC,
+    ),
+    BydSensorDescription(
+        key="lifetime_avg_fuel_consumption",
+        source="snapshot",
+        value_fn=_prefer_rt_then_energy(
+            "total_consumption_en_fuel",
+            "cumulative_energy_consumption",
+            "avg_oil_consumption",
+        ),
+        unit_fn=_prefer_rt_then_energy(
+            "total_consumption_en_fuel_unit",
+            "cumulative_energy_consumption",
+            "oil_unit",
+        ),
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:gas-station",
+        entity_registry_enabled_default=False,
+        entity_category=EntityCategory.DIAGNOSTIC,
+    ),
+    # ==========================================
+    # EnergyConsumption (getEnergyConsumption only)
+    # ==========================================
+    BydSensorDescription(
+        key="energy_cumulative_total_mileage",
+        source="energy_cumulative",
+        attr_key="total_mileage",
+        native_unit_of_measurement=UnitOfLength.KILOMETERS,
+        device_class=SensorDeviceClass.DISTANCE,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        icon="mdi:counter",
+        entity_registry_enabled_default=False,
+        entity_category=EntityCategory.DIAGNOSTIC,
+    ),
+    BydSensorDescription(
+        key="energy_last_50km_ev_consumption",
+        source="energy_nearest",
+        attr_key="ev_consumption",
+        unit_fn=_attr_getter("ev_value_unit"),
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:lightning-bolt",
+        entity_registry_enabled_default=False,
+        entity_category=EntityCategory.DIAGNOSTIC,
+    ),
+    BydSensorDescription(
+        key="energy_last_50km_oil_consumption",
+        source="energy_nearest",
+        attr_key="oil_consumption",
+        unit_fn=_attr_getter("oil_value_unit"),
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:gas-station",
+        entity_registry_enabled_default=False,
+        entity_category=EntityCategory.DIAGNOSTIC,
+    ),
+    BydSensorDescription(
+        key="last_50km_avg_eq_consumption",
+        source="snapshot",
+        value_fn=_eq_consumption_value,
+        unit_fn=_eq_consumption_unit,
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:fuel",
+        entity_registry_enabled_default=False,
+        entity_category=EntityCategory.DIAGNOSTIC,
+    ),
+    BydSensorDescription(
+        key="energy_last_50km_drive_distribution",
+        source="energy_nearest",
+        attr_key="drive_distribution",
+        native_unit_of_measurement=PERCENTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:steering",
+        entity_registry_enabled_default=False,
+        entity_category=EntityCategory.DIAGNOSTIC,
+    ),
+    BydSensorDescription(
+        key="energy_last_50km_elect_distribution",
+        source="energy_nearest",
+        attr_key="elect_distribution",
+        native_unit_of_measurement=PERCENTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:lightning-bolt",
+        entity_registry_enabled_default=False,
+        entity_category=EntityCategory.DIAGNOSTIC,
+    ),
+    BydSensorDescription(
+        key="energy_last_50km_air_distribution",
+        source="energy_nearest",
+        attr_key="air_distribution",
+        native_unit_of_measurement=PERCENTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:air-conditioner",
+        entity_registry_enabled_default=False,
+        entity_category=EntityCategory.DIAGNOSTIC,
+    ),
+    BydSensorDescription(
+        key="energy_last_50km_other_distribution",
+        source="energy_nearest",
+        attr_key="other_distribution",
+        native_unit_of_measurement=PERCENTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:dots-horizontal",
+        entity_registry_enabled_default=False,
+        entity_category=EntityCategory.DIAGNOSTIC,
+    ),
+    # ==========================================
+    # EnergyConsumption — 7-day graph series.
+    # Exposes today's value (last element) as the sensor state and
+    # the full series as ``daily_values`` extra state attribute.
+    # ==========================================
+    BydSensorDescription(
+        key="energy_self_graph_today",
+        source="energy_self_graph",
+        value_fn=lambda obj: (
+            obj.energy_consumption[-1]
+            if obj is not None and obj.energy_consumption
+            else None
+        ),
+        unit_fn=_attr_getter("energy_consumption_unit"),
+        state_attrs_fn=lambda obj: (
+            {
+                "daily_values": list(obj.energy_consumption),
+            }
+            if obj is not None and obj.energy_consumption
+            else {}
+        ),
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:chart-line",
+        entity_registry_enabled_default=False,
+        entity_category=EntityCategory.DIAGNOSTIC,
+    ),
+    BydSensorDescription(
+        key="energy_auto_model_graph_today",
+        source="energy_auto_model_graph",
+        value_fn=lambda obj: (
+            obj.energy_consumption[-1]
+            if obj is not None and obj.energy_consumption
+            else None
+        ),
+        unit_fn=_attr_getter("energy_consumption_unit"),
+        state_attrs_fn=lambda obj: (
+            {
+                "daily_values": list(obj.energy_consumption),
+            }
+            if obj is not None and obj.energy_consumption
+            else {}
+        ),
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:chart-line",
+        entity_registry_enabled_default=False,
+        entity_category=EntityCategory.DIAGNOSTIC,
+    ),
 )
 
 
@@ -730,8 +1033,15 @@ class BydSensor(BydVehicleEntity, SensorEntity):
 
     @property
     def native_unit_of_measurement(self) -> str | None:
-        """Return the unit; tire pressures resolve dynamically."""
+        """Return the unit; tyres + per-leg energy fields resolve dynamically."""
         desc_unit = self.entity_description.native_unit_of_measurement
+        if self.entity_description.unit_fn is not None:
+            obj = self._get_source_obj(self.entity_description.source)
+            if obj is not None:
+                dynamic_unit = self.entity_description.unit_fn(obj)
+                if dynamic_unit:
+                    return dynamic_unit
+            return desc_unit
         if self.entity_description.key not in _TIRE_PRESSURE_KEYS:
             return desc_unit
         obj = self._get_source_obj(self.entity_description.source)
@@ -745,3 +1055,15 @@ class BydSensor(BydVehicleEntity, SensorEntity):
     def native_value(self) -> Any:
         """Return the sensor value."""
         return self._resolve_validated_value()
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Merge VIN with description-supplied dynamic attributes."""
+        attrs = super().extra_state_attributes
+        if self.entity_description.state_attrs_fn is not None:
+            obj = self._get_source_obj(self.entity_description.source)
+            if obj is not None:
+                extra = self.entity_description.state_attrs_fn(obj)
+                if extra:
+                    attrs = {**attrs, **extra}
+        return attrs

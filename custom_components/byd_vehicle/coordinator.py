@@ -428,6 +428,12 @@ class BydDataUpdateCoordinator(DataUpdateCoordinator[VehicleSnapshot]):
 
     _HVAC_FINAL_RECONCILE_RETRY_DELAY_SECONDS = 60
 
+    # Override parent annotations: ``data`` is None until first refresh,
+    # and we assign ``update_interval = None`` to pause polling (HA
+    # accepts None at runtime; the stub doesn't mark it Optional).
+    data: VehicleSnapshot | None
+    update_interval: timedelta | None
+
     def __init__(
         self,
         hass: HomeAssistant,
@@ -863,6 +869,10 @@ class BydGpsUpdateCoordinator(DataUpdateCoordinator[VehicleSnapshot]):
     through the same state engine and benefits from the value-quality
     validators (Null Island rejection).
     """
+
+    # See note on BydDataUpdateCoordinator above — same parent annotations.
+    data: VehicleSnapshot | None
+    update_interval: timedelta | None
 
     def __init__(
         self,

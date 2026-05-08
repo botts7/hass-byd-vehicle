@@ -69,6 +69,7 @@ async def async_setup_entry(
 
         entities.append(BydForcePollButton(coordinator, gps_coordinator, vin, vehicle))
         entities.append(BydStartChargingButton(coordinator, vin, vehicle))
+        entities.append(BydFetchEnergyButton(coordinator, vin, vehicle))
         for description in BUTTON_DESCRIPTIONS:
             if not coordinator.capability_available(description.capability_key):
                 continue
@@ -194,3 +195,39 @@ class BydStartChargingButton(BydVehicleEntity, ButtonEntity):
 
     async def async_press(self) -> None:
         await self.coordinator.async_start_charging()
+
+
+class BydFetchEnergyButton(BydVehicleEntity, ButtonEntity):
+    """Button that fetches the getEnergyConsumption snapshot on demand.
+
+    Energy data isn't included in the regular telemetry poll (cumulative
+    averages and last-trip breakdown change slowly and the cloud rate-
+    limits the endpoint), so the energy_* sensors are unavailable until
+    this button is pressed.
+    """
+
+    _attr_has_entity_name = True
+    _attr_translation_key = "fetch_energy"
+    _attr_icon = "mdi:download"
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(
+        self,
+        coordinator: BydDataUpdateCoordinator,
+        vin: str,
+        vehicle: Vehicle,
+    ) -> None:
+        super().__init__(coordinator)
+        self._vin = vin
+        self._vehicle = vehicle
+        self._attr_unique_id = f"{vin}_button_fetch_energy"
+
+    async def async_press(self) -> None:
+        try:
+            await self.coordinator.async_fetch_energy()
+            # Push the updated snapshot (with energy) out to subscribers
+            # so the dependent sensors come online without waiting for
+            # the next telemetry tick.
+            self.coordinator.async_set_updated_data(self.coordinator.car.state)
+        except Exception as exc:  # noqa: BLE001
+            raise HomeAssistantError(str(exc)) from exc
