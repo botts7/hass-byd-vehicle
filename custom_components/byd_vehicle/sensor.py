@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from homeassistant.components.sensor import (
@@ -62,6 +62,33 @@ def _normalize_epoch(value: Any) -> datetime | None:
             return value.replace(tzinfo=UTC)
         return value
     return None
+
+
+def _normalize_gps_timestamp(
+    gps_timestamp: datetime | None,
+    realtime_timestamp: datetime | None,
+) -> datetime | None:
+    """Correct clean whole-hour GPS offsets relative to realtime.
+
+    Some vehicles appear to report GPS timestamps with a timezone-style
+    encoding bug that shifts the value by an exact number of whole hours.
+    When the delta vs. realtime is within 5 minutes of a whole-hour
+    offset, subtract that offset; otherwise preserve the original GPS
+    timestamp to avoid over-correcting stale data.
+    """
+    if gps_timestamp is None or realtime_timestamp is None:
+        return gps_timestamp
+
+    delta = gps_timestamp - realtime_timestamp
+    whole_hours = round(delta.total_seconds() / 3600)
+    if whole_hours == 0:
+        return gps_timestamp
+
+    whole_hour_delta = timedelta(hours=whole_hours)
+    if abs(delta - whole_hour_delta) > timedelta(minutes=5):
+        return gps_timestamp
+
+    return gps_timestamp - whole_hour_delta
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -150,6 +177,49 @@ def _attr_getter(name: str) -> Callable[[Any], Any]:
         return getattr(obj, name, None)
 
     return _get
+
+
+_WEEKDAY_LABELS: tuple[str, ...] = (
+    "Mon",
+    "Tue",
+    "Wed",
+    "Thu",
+    "Fri",
+    "Sat",
+    "Sun",
+)
+
+
+def _format_charge_way(value: str | None) -> str | None:
+    """Render the BYD ``chargeWay`` token as a human-readable repeat label.
+
+    * ``"s"`` → ``"Single"``
+    * ``"e"`` → ``"Every day"``
+    * ``"0,1,2,3,4"`` → ``"Weekdays"``
+    * ``"5,6"`` → ``"Weekends"``
+    * other comma-separated weekday indices → ``"Custom (Mon, Wed, Fri)"``
+
+    Falls back to the raw string for unparseable values so the sensor
+    surfaces the truth rather than swallowing unknown formats silently.
+    """
+    if value is None or not value:
+        return None
+    if value == "s":
+        return "Single"
+    if value == "e":
+        return "Every day"
+    if value == "0,1,2,3,4":
+        return "Weekdays"
+    if value == "5,6":
+        return "Weekends"
+    try:
+        indices = sorted({int(p.strip()) for p in value.split(",") if p.strip()})
+    except ValueError:
+        return value
+    names = [_WEEKDAY_LABELS[i] for i in indices if 0 <= i < len(_WEEKDAY_LABELS)]
+    if not names:
+        return value
+    return f"Custom ({', '.join(names)})"
 
 
 def _eq_consumption_value(snap: Any) -> Any:
@@ -906,6 +976,47 @@ SENSOR_DESCRIPTIONS: tuple[BydSensorDescription, ...] = (
         entity_registry_enabled_default=False,
         entity_category=EntityCategory.DIAGNOSTIC,
     ),
+    # --- Smart-charging schedule (sourced from /control/smartCharge/homePage) ---
+    BydSensorDescription(
+        key="scheduled_charge_start_time",
+        source="charging_schedule_charge",
+        value_fn=lambda obj: (
+            obj.start_time.strftime("%H:%M")
+            if obj is not None and obj.start_time is not None
+            else None
+        ),
+        icon="mdi:calendar-clock",
+        entity_registry_enabled_default=False,
+        entity_category=EntityCategory.DIAGNOSTIC,
+    ),
+    BydSensorDescription(
+        key="scheduled_charge_end_time",
+        source="charging_schedule_charge",
+        # ``charge_until_full`` flags the wire sentinel ``"full"`` —
+        # there's no clock-time end, so surface as unavailable rather
+        # than showing a misleading value.
+        available_fn=lambda obj: (
+            obj is not None and obj.end_time is not None and not obj.charge_until_full
+        ),
+        value_fn=lambda obj: (
+            obj.end_time.strftime("%H:%M")
+            if obj is not None and obj.end_time is not None
+            else None
+        ),
+        icon="mdi:calendar-clock",
+        entity_registry_enabled_default=False,
+        entity_category=EntityCategory.DIAGNOSTIC,
+    ),
+    BydSensorDescription(
+        key="scheduled_charge_repeat",
+        source="charging_schedule_charge",
+        value_fn=lambda obj: (
+            _format_charge_way(obj.charge_way) if obj is not None else None
+        ),
+        icon="mdi:calendar-refresh",
+        entity_registry_enabled_default=False,
+        entity_category=EntityCategory.DIAGNOSTIC,
+    ),
 )
 
 
@@ -999,7 +1110,10 @@ class BydSensor(BydVehicleEntity, SensorEntity):
             gps = self._get_gps()
             if gps is None:
                 return None
-            return _normalize_epoch(getattr(gps, "gps_timestamp", None))
+            gps_timestamp = _normalize_epoch(getattr(gps, "gps_timestamp", None))
+            realtime = self._get_realtime()
+            realtime_timestamp = _normalize_epoch(getattr(realtime, "timestamp", None))
+            return _normalize_gps_timestamp(gps_timestamp, realtime_timestamp)
 
         obj = self._get_source_obj(self.entity_description.source)
         if obj is None:

@@ -121,18 +121,8 @@ async def _validate_input(hass: HomeAssistant, data: dict[str, Any]) -> None:
             await client.verify_command_access(vehicles[0].vin)
 
 
-class BydVehicleConfigFlow(  # type: ignore[call-arg]
-    config_entries.ConfigFlow, domain=DOMAIN
-):
-    """Handle a config flow for BYD Vehicle.
-
-    The ``# type: ignore[call-arg]`` is a stub limitation, not a bug:
-    HA's ``ConfigFlow.__init_subclass__(*, domain=...)`` is rejected by
-    mypy because the lint environment doesn't have the ``homeassistant``
-    package installed, so ``ignore_missing_imports`` collapses the
-    parent to ``object`` (whose ``__init_subclass__`` doesn't accept
-    ``domain=``).  Installing HA in CI would resolve it cleanly.
-    """
+class BydVehicleConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
+    """Handle a config flow for BYD Vehicle."""
 
     VERSION = 3
 

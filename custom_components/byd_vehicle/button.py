@@ -228,6 +228,8 @@ class BydFetchEnergyButton(BydVehicleEntity, ButtonEntity):
             # Push the updated snapshot (with energy) out to subscribers
             # so the dependent sensors come online without waiting for
             # the next telemetry tick.
-            self.coordinator.async_set_updated_data(self.coordinator.car.state)
+            car = self.coordinator.car
+            if car is not None:
+                self.coordinator.async_set_updated_data(car.state)
         except Exception as exc:  # noqa: BLE001
             raise HomeAssistantError(str(exc)) from exc
